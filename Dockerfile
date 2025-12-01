@@ -1,45 +1,44 @@
-# -----------------------------------------------------------------------------
-# 1단계: 빌드 (Build Stage)
-# -----------------------------------------------------------------------------
+# ---------------------
+# 1. Builder 단계
+# ---------------------
 FROM node:18-alpine AS builder
-
 WORKDIR /app
 
-# 빌드 시 필요한 환경 변수 정의
-ARG RELAYER_PRIVATE_KEY
-ENV RELAYER_PRIVATE_KEY=${RELAYER_PRIVATE_KEY}
-
-# 패키지 설치
+# 의존성 설치
 COPY package.json package-lock.json ./
 RUN npm install
 
 # 소스 복사
 COPY . .
 
-# Next.js 빌드 (standalone 모드 생성)
+# 환경 변수 빌드용 ARG
+ARG NEXTAUTH_SECRET
+ARG CONTRACT_ADDRESS_VOTING
+ARG DB_URI
+ARG RELAYER_PRIVATE_KEY
+
+# 빌드
 RUN npm run build
 
-# -----------------------------------------------------------------------------
-# 2단계: 실행 (Runner Stage)
-# -----------------------------------------------------------------------------
+# ---------------------
+# 2. Runner 단계
+# ---------------------
 FROM node:18-alpine AS runner
-
-ENV NODE_ENV="production"
-ENV PORT="3000"
-
 WORKDIR /app
 
-# 최소한의 파일만 복사
-COPY --from=builder /app/.next/standalone ./
-COPY --from=builder /app/.next/static ./.next/static
-COPY --from=builder /app/public ./public
+# 빌드 결과와 의존성 복사
+COPY --from=builder /app/.next ./.next
+COPY --from=builder /app/package.json ./
+COPY --from=builder /app/node_modules ./node_modules
 
-# non-root 사용자 생성
-RUN addgroup --system --gid 1001 nodejs
-RUN adduser --system --uid 1001 nextjs
-USER nextjs
+# public 폴더 복사 제거 (이 줄 삭제)
+# COPY --from=builder /app/public ./public
 
-EXPOSE 3000
+# 런타임 환경 변수 설정
+ENV NEXTAUTH_SECRET=$NEXTAUTH_SECRET
+ENV CONTRACT_ADDRESS_VOTING=$CONTRACT_ADDRESS_VOTING
+ENV DB_URI=$DB_URI
+ENV RELAYER_PRIVATE_KEY=$RELAYER_PRIVATE_KEY
 
-# 서버 실행
-CMD ["node", "server.js"]
+# 앱 실행
+CMD ["npm", "start"]
