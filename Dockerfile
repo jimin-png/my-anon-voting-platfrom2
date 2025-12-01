@@ -1,44 +1,45 @@
-# Dockerfile for Backend B (API)
-FROM node:20-alpine AS base
+# -----------------------------------------------------------------------------
+# 1단계: 빌드 (Build Stage)
+# -----------------------------------------------------------------------------
+FROM node:18-alpine AS builder
 
-# Install dependencies only when needed
-FROM base AS deps
-RUN apk add --no-cache libc6-compat
 WORKDIR /app
 
-# Copy package files
-COPY package.json package-lock.json* ./
-RUN npm ci
+# 빌드 시 필요한 환경 변수 정의
+ARG RELAYER_PRIVATE_KEY
+ENV RELAYER_PRIVATE_KEY=${RELAYER_PRIVATE_KEY}
 
-# Rebuild the source code only when needed
-FROM base AS builder
-WORKDIR /app
-COPY --from=deps /app/node_modules ./node_modules
+# 패키지 설치
+COPY package.json package-lock.json ./
+RUN npm install
+
+# 소스 복사
 COPY . .
 
-# Build Next.js
+# Next.js 빌드 (standalone 모드 생성)
 RUN npm run build
 
-# Production image, copy all the files and run next
-FROM base AS runner
+# -----------------------------------------------------------------------------
+# 2단계: 실행 (Runner Stage)
+# -----------------------------------------------------------------------------
+FROM node:18-alpine AS runner
+
+ENV NODE_ENV="production"
+ENV PORT="3000"
+
 WORKDIR /app
 
-ENV NODE_ENV=production
-
-RUN addgroup --system --gid 1001 nodejs
-RUN adduser --system --uid 1001 nextjs
-
-# Copy necessary files
-COPY --from=builder /app/public ./public
+# 최소한의 파일만 복사
 COPY --from=builder /app/.next/standalone ./
 COPY --from=builder /app/.next/static ./.next/static
+COPY --from=builder /app/public ./public
 
+# non-root 사용자 생성
+RUN addgroup --system --gid 1001 nodejs
+RUN adduser --system --uid 1001 nextjs
 USER nextjs
 
 EXPOSE 3000
 
-ENV PORT=3000
-ENV HOSTNAME="0.0.0.0"
-
+# 서버 실행
 CMD ["node", "server.js"]
-
