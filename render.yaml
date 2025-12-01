@@ -1,0 +1,27 @@
+# Render 배포 설정
+services:
+  - type: web
+    name: backend-b-api
+    env: node
+    buildCommand: npm ci && npm run build
+    startCommand: npm start
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: DB_URI
+        sync: false
+      - key: RELAYER_PRIVATE_KEY
+        sync: false
+      - key: INFURA_URL
+        sync: false
+      - key: CHAIN_ID
+        value: 11155111
+      - key: RATE_LIMIT_MAX
+        value: 100
+      - key: RATE_LIMIT_WINDOW_MS
+        value: 900000
+      - key: CONFIRMATIONS_REQUIRED
+        value: 2
+    healthCheckPath: /api/health
+    plan: starter
+

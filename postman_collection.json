@@ -1,0 +1,273 @@
+{
+  "info": {
+    "name": "Backend B API Collection",
+    "description": "백엔드 B (API) 엔드포인트 모음",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "Health & Monitoring",
+      "item": [
+        {
+          "name": "Health Check",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/health",
+              "host": ["{{base_url}}"],
+              "path": ["api", "health"]
+            }
+          }
+        },
+        {
+          "name": "Health Check (Detailed)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/healthz",
+              "host": ["{{base_url}}"],
+              "path": ["api", "healthz"]
+            }
+          }
+        },
+        {
+          "name": "Metrics",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/metrics",
+              "host": ["{{base_url}}"],
+              "path": ["api", "metrics"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Polls (관리자)",
+      "item": [
+        {
+          "name": "Create Poll",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"creatorWallet\": \"0x1234567890123456789012345678901234567890\",\n  \"title\": \"Test Poll\",\n  \"description\": \"Test Description\",\n  \"candidates\": [\n    { \"id\": \"1\", \"label\": \"Candidate 1\" },\n    { \"id\": \"2\", \"label\": \"Candidate 2\" }\n  ],\n  \"startTime\": \"2024-01-01T00:00:00Z\",\n  \"endTime\": \"2024-01-02T00:00:00Z\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/polls",
+              "host": ["{{base_url}}"],
+              "path": ["api", "polls"]
+            }
+          }
+        },
+        {
+          "name": "Get Polls by Creator",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/polls?creator=0x1234567890123456789012345678901234567890",
+              "host": ["{{base_url}}"],
+              "path": ["api", "polls"],
+              "query": [
+                {
+                  "key": "creator",
+                  "value": "0x1234567890123456789012345678901234567890"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Get Poll Detail",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/polls/:pollId",
+              "host": ["{{base_url}}"],
+              "path": ["api", "polls", ":pollId"],
+              "variable": [
+                {
+                  "key": "pollId",
+                  "value": "test-poll-id"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Get Poll Public Info",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/polls/:pollId/public",
+              "host": ["{{base_url}}"],
+              "path": ["api", "polls", ":pollId", "public"],
+              "variable": [
+                {
+                  "key": "pollId",
+                  "value": "test-poll-id"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Get Poll Results",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/polls/:pollId/results",
+              "host": ["{{base_url}}"],
+              "path": ["api", "polls", ":pollId", "results"],
+              "variable": [
+                {
+                  "key": "pollId",
+                  "value": "test-poll-id"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Vote",
+      "item": [
+        {
+          "name": "Create Vote",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"pollId\": \"test-poll-id\",\n  \"walletAddress\": \"0x1234567890123456789012345678901234567890\",\n  \"candidate\": \"Candidate 1\",\n  \"nullifierHash\": \"0xabcdef\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/vote/create",
+              "host": ["{{base_url}}"],
+              "path": ["api", "vote", "create"]
+            }
+          }
+        },
+        {
+          "name": "Get Vote Results",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/vote/results?pollId=test-poll-id",
+              "host": ["{{base_url}}"],
+              "path": ["api", "vote", "results"],
+              "query": [
+                {
+                  "key": "pollId",
+                  "value": "test-poll-id"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Relayer",
+      "item": [
+        {
+          "name": "Relay Transaction",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"to\": \"0x1234567890123456789012345678901234567890\",\n  \"data\": \"0xabcdef\",\n  \"pollId\": \"test-poll-id\",\n  \"chainId\": 11155111,\n  \"deadline\": 1234567890\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/relay",
+              "host": ["{{base_url}}"],
+              "path": ["api", "relay"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "User",
+      "item": [
+        {
+          "name": "Register Voter",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Test User\",\n  \"walletAddress\": \"0x1234567890123456789012345678901234567890\",\n  \"studentId\": \"12345678\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/user/register",
+              "host": ["{{base_url}}"],
+              "path": ["api", "user", "register"]
+            }
+          }
+        },
+        {
+          "name": "Login",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"walletAddress\": \"0x1234567890123456789012345678901234567890\",\n  \"studentId\": \"12345678\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/user/login",
+              "host": ["{{base_url}}"],
+              "path": ["api", "user", "login"]
+            }
+          }
+        }
+      ]
+    }
+  ],
+  "variable": [
+    {
+      "key": "base_url",
+      "value": "http://localhost:3000",
+      "type": "string"
+    }
+  ]
+}
+
