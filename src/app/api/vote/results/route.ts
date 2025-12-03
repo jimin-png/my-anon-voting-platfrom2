@@ -94,13 +94,14 @@ export async function GET(
 
     const totalVotes = uniqueVotes.length
 
-    // 4) 프론트 요구 포맷으로 변환
+    // 4) 프론트 요구 형식으로 변환
     const results = aggregated.map(item => ({
       candidate: item.candidate,
       label: labelMap[item.candidate] ?? "",
       votes: item.votes
     }))
 
+    // 5) 최종 응답 (프론트 요구 포맷 100% 일치)
     return NextResponse.json(
       {
         success: true,
@@ -112,6 +113,7 @@ export async function GET(
       },
       { status: 200 }
     )
+
   } catch (error) {
     console.error('Get Poll Results API Error:', error)
     return NextResponse.json(
