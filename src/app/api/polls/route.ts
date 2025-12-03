@@ -1,20 +1,21 @@
 /**
  * 투표 관리 API
- * 
+ *
  * POST /api/polls - 투표 생성
  * GET /api/polls?creator=0x... - 생성자가 만든 투표 목록 조회
- * 
+ *
  * 관리자가 투표를 생성하고 조회하는 엔드포인트입니다.
- * 
+ *
  * 투표 생성:
  * 1. 요청 데이터 검증 (Zod 스키마)
  * 2. pollId 생성 (UUID v4)
  * 3. DB에 저장
- * 
+ *
  * 투표 목록 조회:
  * - creator 파라미터로 필터링 가능
  * - 없으면 전체 투표 목록 반환
  */
+
 
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
@@ -42,7 +43,9 @@ const createPollSchema = z.object({
   merkleRoot: z.string().optional(),
 });
 
-// 투표 생성
+// ============================================
+// POST /api/polls (투표 생성)
+// ============================================
 export async function POST(req: NextRequest) {
   try {
     await dbConnect();
@@ -54,8 +57,14 @@ export async function POST(req: NextRequest) {
     const pollId = uuidv4();
 
     // 날짜 변환
-    const startTime = typeof validated.startTime === 'string' ? new Date(validated.startTime) : validated.startTime;
-    const endTime = typeof validated.endTime === 'string' ? new Date(validated.endTime) : validated.endTime;
+    const startTime =
+      typeof validated.startTime === 'string'
+        ? new Date(validated.startTime)
+        : validated.startTime;
+    const endTime =
+      typeof validated.endTime === 'string'
+        ? new Date(validated.endTime)
+        : validated.endTime;
 
     // 마감 시간 검증
     if (endTime <= startTime) {
@@ -65,7 +74,8 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const poll = await Poll.create({
+    // DB 저장
+    await Poll.create({
       pollId,
       creatorWallet: validated.creatorWallet,
       title: validated.title,
@@ -76,27 +86,47 @@ export async function POST(req: NextRequest) {
       merkleRoot: validated.merkleRoot,
     });
 
+    // ============================================
+    // 🔥 프론트 요구사항에 맞춘 응답 포맷
+    // ============================================
     return NextResponse.json(
       {
         success: true,
-        message: '투표가 생성되었습니다.',
-        data: poll,
+        data: {
+          pollId,
+        },
       },
       { status: 201 }
     );
   } catch (error: unknown) {
     console.error('Create Poll API Error:', error);
 
+    // Zod 오류 처리
     if (error instanceof z.ZodError) {
-      const firstMessage = error.issues[0]?.message ?? '유효성 검사에 실패했습니다.';
-      return NextResponse.json({ success: false, message: firstMessage, details: error.issues }, { status: 400 });
+      const firstMessage =
+        error.issues[0]?.message ?? '유효성 검사에 실패했습니다.';
+      return NextResponse.json(
+        { success: false, message: firstMessage, details: error.issues },
+        { status: 400 }
+      );
     }
 
-    if (error && typeof error === 'object' && 'code' in error && error.code === 11000) {
-      return NextResponse.json({ success: false, message: '이미 존재하는 pollId입니다.' }, { status: 409 });
+    // Duplicate pollId 에러 처리
+    if (
+      error &&
+      typeof error === 'object' &&
+      'code' in error &&
+      error.code === 11000
+    ) {
+      return NextResponse.json(
+        { success: false, message: '이미 존재하는 pollId입니다.' },
+        { status: 409 }
+      );
     }
 
-    const errorMessage = error instanceof Error ? error.message : String(error);
+    // 기타 서버 오류
+    const errorMessage =
+      error instanceof Error ? error.message : String(error);
     return NextResponse.json(
       { success: false, message: '서버 오류가 발생했습니다.', details: errorMessage },
       { status: 500 }
@@ -104,7 +134,9 @@ export async function POST(req: NextRequest) {
   }
 }
 
-// 투표 목록 조회 (생성자별)
+// ============================================
+// GET /api/polls (투표 목록 조회)
+// ============================================
 export async function GET(req: NextRequest) {
   try {
     await dbConnect();
@@ -112,8 +144,8 @@ export async function GET(req: NextRequest) {
     const { searchParams } = new URL(req.url);
     const creator = searchParams.get('creator');
 
+    // 특정 생성자 투표 조회
     if (creator) {
-      // 특정 생성자의 투표 목록
       const polls = await Poll.find({ creatorWallet: creator })
         .sort({ createdAt: -1 })
         .lean();
@@ -128,8 +160,11 @@ export async function GET(req: NextRequest) {
       );
     }
 
-    // 전체 목록 (최근 50개)
-    const polls = await Poll.find().sort({ createdAt: -1 }).limit(50).lean();
+    // 전체 투표 최근 50개
+    const polls = await Poll.find()
+      .sort({ createdAt: -1 })
+      .limit(50)
+      .lean();
 
     return NextResponse.json(
       {
@@ -141,11 +176,12 @@ export async function GET(req: NextRequest) {
     );
   } catch (error: unknown) {
     console.error('Get Polls API Error:', error);
-    const errorMessage = error instanceof Error ? error.message : String(error);
+
+    const errorMessage =
+      error instanceof Error ? error.message : String(error);
     return NextResponse.json(
       { success: false, message: '서버 오류가 발생했습니다.', details: errorMessage },
       { status: 500 }
     );
   }
 }
-
