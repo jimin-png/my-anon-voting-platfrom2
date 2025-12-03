@@ -28,6 +28,7 @@ export async function GET(
 ) {
   try {
     await dbConnect()
+
     const { pollId } = params
 
     // 1) Poll 존재 확인
@@ -41,11 +42,11 @@ export async function GET(
 
     // 후보 label 매핑
     const labelMap: Record<string, string> = {}
-    poll.candidates.forEach((c: any) => {
-      labelMap[c.id] = c.label
-    })
+    poll.candidates.forEach((c: any) =>
+      (labelMap[c.id] = c.label)
+    )
 
-    // 2) 최신 투표만 집계
+    // 2) 최신 투표만 집계 (중복 제거 + 재투표 반영)
     const aggregated = await Vote.aggregate([
       { $match: { pollId } },
       {
@@ -76,7 +77,7 @@ export async function GET(
       { $sort: { votes: -1 } }
     ])
 
-    // 3) totalVotes 계산
+    // 3) totalVotes 계산 (유효한 최종 투표 수)
     const uniqueVotes = await Vote.aggregate([
       { $match: { pollId } },
       {
@@ -91,17 +92,16 @@ export async function GET(
         }
       }
     ])
-
     const totalVotes = uniqueVotes.length
 
-    // 4) 프론트 요구 형식으로 변환
+    // 4) 프론트 요구 형식에 맞게 변환
     const results = aggregated.map(item => ({
       candidate: item.candidate,
       label: labelMap[item.candidate] ?? "",
       votes: item.votes
     }))
 
-    // 5) 최종 응답 (프론트 요구 포맷 100% 일치)
+    // 5) 최종 응답
     return NextResponse.json(
       {
         success: true,
