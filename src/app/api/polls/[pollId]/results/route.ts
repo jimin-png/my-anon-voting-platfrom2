@@ -24,9 +24,10 @@ export async function GET(
 ) {
   try {
     await dbConnect();
+
     const { pollId } = params;
 
-    // 1) Poll 존재 확인
+    // 1. 해당 Poll 존재 확인
     const poll = await Poll.findOne({ pollId }).lean();
     if (!poll) {
       return NextResponse.json(
@@ -35,22 +36,27 @@ export async function GET(
       );
     }
 
-    // 후보 label 매핑
+    // -----------------------------------------------
+    // 후보 label 맵 구성
+    // -----------------------------------------------
     const labelMap: Record<string, string> = {};
     poll.candidates.forEach((c: any) => {
       labelMap[c.id] = c.label;
     });
 
-    // 2) 최신 투표만 집계 (재투표 고려)
+    // -----------------------------------------------
+    // 2. 최신 투표만 집계 (재투표 포함)
+    // -----------------------------------------------
     const aggregated = await Vote.aggregate([
       { $match: { pollId } },
       {
+        // nullifierHash 있으면 그걸 기준으로 재투표 식별
         $group: {
           _id: {
             $cond: [
-              { $ifNull: ["$nullifierHash", false] },
-              "$nullifierHash",
-              { $toString: "$voter" }
+              { $ifNull: ['$nullifierHash', false] },
+              '$nullifierHash',        // nullifierHash 있으면 이것으로 그룹화
+              { $toString: '$voter' } // 없으면 voter ID로 그룹화
             ]
           },
           candidate: { $last: "$candidate" }
@@ -68,20 +74,19 @@ export async function GET(
           candidate: "$_id",
           votes: 1
         }
-      },
-      { $sort: { votes: -1 } }
+      }
     ]);
 
-    // 3) totalVotes 계산 (중복 제외)
+    // 총 투표 수 계산
     const uniqueVotes = await Vote.aggregate([
       { $match: { pollId } },
       {
         $group: {
           _id: {
             $cond: [
-              { $ifNull: ["$nullifierHash", false] },
-              "$nullifierHash",
-              { $toString: "$voter" }
+              { $ifNull: ['$nullifierHash', false] },
+              '$nullifierHash',
+              { $toString: '$voter' }
             ]
           }
         }
@@ -89,25 +94,49 @@ export async function GET(
     ]);
     const totalVotes = uniqueVotes.length;
 
-    // 4) 프론트 요구 형식으로 변환
-    const results = aggregated.map((item) => ({
-      candidate: item.candidate,
-      label: labelMap[item.candidate] ?? "",
-      votes: item.votes
-    }));
+    // -----------------------------------------------
+    // 3. 프론트 요구 형식으로 결과 구성
+    //    - 모든 후보 포함 (0표 후보도 포함)
+    // -----------------------------------------------
 
-    // 5) 최종 응답 (100% 프론트 요구 포맷)
+    const resultsMap: Record<string, { candidate: string; label: string; votes: number }> = {};
+
+    // 기본값: 모든 후보 votes = 0
+    poll.candidates.forEach((c: any) => {
+      resultsMap[c.id] = {
+        candidate: c.id,
+        label: c.label,
+        votes: 0
+      };
+    });
+
+    // 득표된 후보 덮어쓰기
+    aggregated.forEach(item => {
+      if (resultsMap[item.candidate]) {
+        resultsMap[item.candidate].votes = item.votes;
+      }
+    });
+
+    // votes 기준 내림차순 정렬
+    const results = Object.values(resultsMap).sort((a, b) => b.votes - a.votes);
+
+    // -----------------------------------------------
+    // 4. 최종 응답
+    // -----------------------------------------------
     return NextResponse.json(
       {
         success: true,
         data: {
           pollId,
+          title: poll.title,
           totalVotes,
-          results
+          results,
+          timestamp: new Date().toISOString()
         }
       },
       { status: 200 }
     );
+
   } catch (error) {
     console.error("Get Poll Results API Error:", error);
     return NextResponse.json(
