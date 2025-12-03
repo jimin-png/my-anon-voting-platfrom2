@@ -1,8 +1,8 @@
 // src/app/api/polls/[pollId]/results/route.ts
-import { NextRequest, NextResponse } from 'next/server'
-import dbConnect from '@/lib/dbConnect'
-import Poll from '@/models/Poll'
-import Vote from '@/models/Vote'
+import { NextRequest, NextResponse } from "next/server";
+import dbConnect from "@/lib/dbConnect";
+import Poll from "@/models/Poll";
+import Vote from "@/models/Vote";
 
 /**
  * 투표 결과 집계 API
@@ -17,121 +17,102 @@ import Vote from '@/models/Vote'
  * - 재투표는 최신 것만 유효해야 함
  * - nullifierHash별로 그룹화하여 중복 제거
  */
+
 export async function GET(
   req: NextRequest,
   { params }: { params: { pollId: string } }
 ) {
   try {
-    await dbConnect()
+    await dbConnect();
+    const { pollId } = params;
 
-    const { pollId } = params
-
-    // ============================================
-    // 1. 투표 존재 확인
-    // ============================================
-    const poll = await Poll.findOne({ pollId }).lean()
+    // 1) Poll 존재 확인
+    const poll = await Poll.findOne({ pollId }).lean();
     if (!poll) {
       return NextResponse.json(
-        { success: false, message: '투표를 찾을 수 없습니다.' },
+        { success: false, message: "투표를 찾을 수 없습니다." },
         { status: 404 }
-      )
+      );
     }
 
-    // ============================================
-    // 2. 투표 결과 집계 (혼합 100건 처리 개선)
-    // ============================================
-    // 재투표(업데이트)를 고려하여 최신 투표만 집계
-    const aggregationPipeline = [
-      // 2-1. 해당 pollId만 필터링
-      { $match: { pollId } },
+    // 후보 label 매핑
+    const labelMap: Record<string, string> = {};
+    poll.candidates.forEach((c: any) => {
+      labelMap[c.id] = c.label;
+    });
 
-      // 2-2. nullifierHash별로 그룹화하여 최신 투표만 선택
-      // nullifierHash가 있으면 그것으로, 없으면 voter ID로 그룹화
+    // 2) 최신 투표만 집계 (재투표 고려)
+    const aggregated = await Vote.aggregate([
+      { $match: { pollId } },
       {
         $group: {
           _id: {
             $cond: [
-              { $ifNull: ['$nullifierHash', false] }, // nullifierHash가 있는지 확인
-              '$nullifierHash', // 있으면 nullifierHash 사용
-              { $toString: '$voter' }, // 없으면 voter ID 사용
-            ],
+              { $ifNull: ["$nullifierHash", false] },
+              "$nullifierHash",
+              { $toString: "$voter" }
+            ]
           },
-          candidate: { $last: '$candidate' }, // 최신 투표의 candidate (재투표 시 업데이트된 것)
-          timestamp: { $max: '$timestamp' },
-        },
+          candidate: { $last: "$candidate" }
+        }
       },
-
-      // 2-3. candidate별로 집계
       {
         $group: {
-          _id: '$candidate',
-          count: { $sum: 1 }, // 각 candidate를 선택한 고유 투표자 수
-        },
+          _id: "$candidate",
+          votes: { $sum: 1 }
+        }
       },
-
-      // 2-4. 결과 형식 변환
       {
         $project: {
           _id: 0,
-          candidate: '$_id',
-          count: 1,
-        },
+          candidate: "$_id",
+          votes: 1
+        }
       },
+      { $sort: { votes: -1 } }
+    ]);
 
-      // 2-5. 득표수 내림차순 정렬
-      {
-        $sort: { count: -1 as const },
-      },
-    ]
-
-    // ============================================
-    // 3. 집계 실행
-    // ============================================
-    const results = await Vote.aggregate(aggregationPipeline)
-
-    // ============================================
-    // 4. 총 투표 수 계산 (중복 제거)
-    // ============================================
-    // nullifierHash 또는 voter별로 그룹화하여 고유 투표자 수 계산
+    // 3) totalVotes 계산 (중복 제외)
     const uniqueVotes = await Vote.aggregate([
       { $match: { pollId } },
       {
         $group: {
           _id: {
             $cond: [
-              { $ifNull: ['$nullifierHash', false] },
-              '$nullifierHash',
-              { $toString: '$voter' },
-            ],
-          },
-        },
-      },
-    ])
-    const totalVotes = uniqueVotes.length // 재투표 제외한 실제 투표 수
+              { $ifNull: ["$nullifierHash", false] },
+              "$nullifierHash",
+              { $toString: "$voter" }
+            ]
+          }
+        }
+      }
+    ]);
+    const totalVotes = uniqueVotes.length;
 
+    // 4) 프론트 요구 형식으로 변환
+    const results = aggregated.map((item) => ({
+      candidate: item.candidate,
+      label: labelMap[item.candidate] ?? "",
+      votes: item.votes
+    }));
+
+    // 5) 최종 응답 (100% 프론트 요구 포맷)
     return NextResponse.json(
       {
         success: true,
         data: {
           pollId,
-          title: poll.title,
           totalVotes,
-          results,
-          timestamp: new Date().toISOString(),
-        },
+          results
+        }
       },
       { status: 200 }
-    )
-  } catch (error: unknown) {
-    console.error('Get Poll Results API Error:', error)
-    const errorMessage = error instanceof Error ? error.message : String(error)
+    );
+  } catch (error) {
+    console.error("Get Poll Results API Error:", error);
     return NextResponse.json(
-      {
-        success: false,
-        message: '서버 오류가 발생했습니다.',
-        details: errorMessage,
-      },
+      { success: false, message: "서버 오류가 발생했습니다." },
       { status: 500 }
-    )
+    );
   }
 }
