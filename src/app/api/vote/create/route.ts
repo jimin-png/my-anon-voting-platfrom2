@@ -20,58 +20,89 @@
  * - ZKP Proof 검증은 블록체인 컨트랙트에서 처리 (merkleRoot 검증 포함)
  */
 
-import { NextRequest, NextResponse } from "next/server";
+// src/app/api/vote/create/route.ts
+
 import dbConnect from "@/lib/dbConnect";
 import Vote from "@/models/Vote";
 import Voter from "@/models/Voter";
-import { verify } from "@/lib/zk/verify"; // groth16.verify 래퍼 함수
+import { verify } from "@/lib/zk/verify";
 
-export async function POST(req: NextRequest) {
+export async function POST(req: Request) {
   try {
     await dbConnect();
+
     const body = await req.json();
 
-    const { pollId, walletAddress, proof, publicSignals, voteIndex } = body;
+    const {
+      pollId,
+      walletAddress,
+      proof,
+      publicSignals,
+      voteIndex,
+    } = body;
 
-    // ============================================
-    // 1. 필수 입력값 검증
-    // ============================================
+    // 1. 필수 값 검증
     if (!pollId || !walletAddress || !proof || !publicSignals || voteIndex === undefined) {
-      return NextResponse.json(
-        { success: false, message: "pollId, walletAddress, proof, publicSignals, voteIndex 필수" },
-        { status: 400 }
+      return new Response(
+        JSON.stringify({
+          success: false,
+          message:
+            "pollId, walletAddress, proof, publicSignals, voteIndex 필수",
+        }),
+        { status: 400, headers: { "Content-Type": "application/json" } }
       );
     }
 
-    const { root, pollId: pollIdSignal, nullifierHash, voteCommitment } = publicSignals;
+    const {
+      root,
+      pollId: pollIdSignal,
+      nullifierHash,
+      voteCommitment,
+    } = publicSignals;
 
-    // ============================================
-    // 2. Proof 검증
-    // ============================================
-    const isValidProof = await verify(proof, publicSignals);
-    if (!isValidProof) {
-      return NextResponse.json(
-        { success: false, message: "유효하지 않은 ZK Proof" },
-        { status: 400 }
+    if (!root || !pollIdSignal || !nullifierHash || !voteCommitment) {
+      return new Response(
+        JSON.stringify({
+          success: false,
+          message: "publicSignals(root, pollId, nullifierHash, voteCommitment) 필수",
+        }),
+        { status: 400, headers: { "Content-Type": "application/json" } }
       );
     }
 
-    // ============================================
-    // 3. publicSignals.pollId === 요청 pollId 확인
-    // ============================================
+    // 2. publicSignals(object) → array 변환 (순서 매우 중요)
+    const signalsArray = [
+      root,
+      pollIdSignal,
+      nullifierHash,
+      voteCommitment,
+    ];
+
+    // 3. ZK Proof 검증
+    const isValid = await verify(proof, signalsArray);
+    if (!isValid) {
+      return new Response(
+        JSON.stringify({
+          success: false,
+          message: "유효하지 않은 ZK Proof",
+        }),
+        { status: 400, headers: { "Content-Type": "application/json" } }
+      );
+    }
+
+    // 4. pollId 일치 확인
     if (pollIdSignal !== pollId) {
-      return NextResponse.json(
-        { success: false, message: "publicSignals.pollId 불일치" },
-        { status: 400 }
+      return new Response(
+        JSON.stringify({
+          success: false,
+          message: "publicSignals.pollId 불일치",
+        }),
+        { status: 400, headers: { "Content-Type": "application/json" } }
       );
     }
 
-
-    // ============================================
-    // 4. walletAddress 기반 유권자 자동 등록 (WBS 요구사항 유지)
-    // ============================================
+    // 5. 유권자 자동 등록 (기존 요구사항 유지)
     let voterDoc = await Voter.findOne({ walletAddress }).lean();
-
     if (!voterDoc?._id) {
       const newVoter = await Voter.create({
         walletAddress,
@@ -81,21 +112,19 @@ export async function POST(req: NextRequest) {
       voterDoc = newVoter.toObject();
     }
 
-
-    // ============================================
-    // 5. NullifierHash 중복 체크 (재투표 방지)
-    // ============================================
+    // 6. nullifierHash 중복 체크 (선거별 1인 1표)
     const exists = await Vote.findOne({ pollId, nullifierHash });
     if (exists) {
-      return NextResponse.json(
-        { success: false, message: "이미 해당 투표에 참여하였습니다. (nullifierHash 중복)" },
-        { status: 409 }
+      return new Response(
+        JSON.stringify({
+          success: false,
+          message: "이미 투표한 사용자입니다(중복 투표 불가)",
+        }),
+        { status: 409, headers: { "Content-Type": "application/json" } }
       );
     }
 
-    // ============================================
-    // 6. 투표 저장 (평문 candidate 제거)
-    // ============================================
+    // 7. 투표 저장 (voteIndex 기반)
     const newVote = await Vote.create({
       pollId,
       root,
@@ -105,24 +134,45 @@ export async function POST(req: NextRequest) {
       voter: voterDoc._id,
     });
 
-    return NextResponse.json(
-      {
+    return new Response(
+      JSON.stringify({
         success: true,
-        message: "투표가 성공적으로 제출되었습니다.",
+        message: "vote accepted",
         data: {
           voteId: newVote._id,
           pollId,
           voteIndex,
         },
-      },
-      { status: 201 }
+      }),
+      { status: 201, headers: { "Content-Type": "application/json" } }
     );
+  } catch (error: any) {
+    console.error("API Error /api/vote/create:", error);
 
-  } catch (err) {
-    console.error("Vote Create API Error:", err);
-    return NextResponse.json(
-      { success: false, message: "Server Error", detail: String(err) },
-      { status: 500 }
+    // unique 에러 (pollId + nullifierHash)
+    if (error?.code === 11000) {
+      return new Response(
+        JSON.stringify({
+          success: false,
+          message: "이미 투표한 사용자입니다(중복 투표 불가)",
+        }),
+        {
+          status: 409,
+          headers: { "Content-Type": "application/json; charset=utf-8" },
+        }
+      );
+    }
+
+    return new Response(
+      JSON.stringify({
+        success: false,
+        message: "Internal Server Error",
+        details: String(error?.message || error),
+      }),
+      {
+        status: 500,
+        headers: { "Content-Type": "application/json; charset=utf-8" },
+      }
     );
   }
 }
