@@ -9,9 +9,9 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 
-// ============================================
-// 1. RateLimit 설정
-// ============================================
+// ======================================================
+// 1) RateLimit 설정
+// ======================================================
 const RATE_LIMIT_MAX = parseInt(process.env.RATE_LIMIT_MAX || '100', 10);
 const RATE_LIMIT_WINDOW_MS = parseInt(process.env.RATE_LIMIT_WINDOW_MS || '900000', 10); // 15분
 const rateLimitCache = new Map<string, { count: number; resetTime: number }>();
@@ -44,55 +44,60 @@ function applyRateLimit(ip: string): boolean {
   return cache.count > RATE_LIMIT_MAX;
 }
 
-// ============================================
-// 2. CORS Origin 설정
-// ============================================
-const allowedOrigins = [
-  'http://localhost:3000',
-  'http://localhost:3001',
-  'https://front-end-ygzm.vercel.app', // ← 프론트 URL 추가됨!
-  ...(process.env.CORS_ORIGINS
-    ? process.env.CORS_ORIGINS.split(',').map((s) => s.trim())
-    : []),
-];
+// ======================================================
+// 2) CORS 허용 규칙 (와일드카드 포함)
+// ======================================================
 
-// ============================================
-// 미들웨어 시작
-// ============================================
+// 모든 Vercel Preview 도메인 허용: https://*.vercel.app
+const vercelWildcard = /^https:\/\/[a-zA-Z0-9-]+\.vercel\.app$/;
+
+function isAllowedOrigin(origin: string | null): boolean {
+  if (!origin) return true; // Origin 없는 요청 허용 (서버 간 호출 등)
+
+  return (
+    origin === 'http://localhost:3000' ||
+    origin === 'http://localhost:3001' ||
+    vercelWildcard.test(origin) // ← ★ 와일드카드 매칭
+  );
+}
+
+// ======================================================
+// 3) Middleware
+// ======================================================
 export function middleware(request: NextRequest) {
   const origin = request.headers.get('origin');
   const url = request.nextUrl.clone();
 
-  // ---------------------------------------------------
-  // **1) OPTIONS 미리 처리 (Preflight) — 가장 먼저 실행해야 함**
-  // ---------------------------------------------------
+  // ============================================
+  // OPTIONS (Preflight) 우선 처리
+  // ============================================
   if (request.method === 'OPTIONS') {
-    if (!origin || allowedOrigins.includes(origin)) {
+    if (isAllowedOrigin(origin)) {
       return new Response(null, {
         status: 204,
         headers: {
           'Access-Control-Allow-Origin': origin || '*',
           'Access-Control-Allow-Methods': 'GET,POST,PUT,DELETE,OPTIONS',
-          'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Request-ID',
+          'Access-Control-Allow-Headers':
+            'Content-Type, Authorization, X-Request-ID',
           'Access-Control-Allow-Credentials': 'true',
         },
       });
     }
-
     return new Response('CORS Not Allowed', { status: 403 });
   }
 
-  // ---------------------------------------------------
-  // **2) 실제 요청 처리**
-  // ---------------------------------------------------
+  // ============================================
+  // 실제 요청 처리
+  // ============================================
   const response = NextResponse.next();
 
   // RequestID 생성
   const requestId = globalThis.crypto.randomUUID();
   response.headers.set('X-Request-ID', requestId);
 
-  // CORS 적용
-  if (!origin || allowedOrigins.includes(origin)) {
+  // CORS 헤더 적용
+  if (isAllowedOrigin(origin)) {
     response.headers.set('Access-Control-Allow-Origin', origin || '*');
     response.headers.set(
       'Access-Control-Allow-Methods',
@@ -105,9 +110,9 @@ export function middleware(request: NextRequest) {
     response.headers.set('Access-Control-Allow-Credentials', 'true');
   }
 
-  // ---------------------------------------------------
-  // **3) RateLimit (API만 적용)**
-  // ---------------------------------------------------
+  // ============================================
+  // RateLimit 적용 (/api 경로만)
+  // ============================================
   if (url.pathname.startsWith('/api')) {
     const ip = getClientIp(request) ?? 'anonymous';
 
@@ -135,6 +140,9 @@ export function middleware(request: NextRequest) {
   return response;
 }
 
+// ======================================================
+// 4) Matcher 설정
+// ======================================================
 export const config = {
   matcher: ['/api/:path*', '/:path*'],
 };
