@@ -1,17 +1,10 @@
 // src/lib/zk/verify.ts
-// @ts-ignore
 import { groth16 } from "snarkjs";
 import fs from "fs";
 import path from "path";
 
-// verification_key.json 파일 위치
-const vKeyPath = path.join(
-  process.cwd(),
-  "src",
-  "lib",
-  "zk",
-  "verification_key.json"
-);
+// verification_key.json 경로
+const vKeyPath = path.join(process.cwd(), "src", "lib", "zk", "verification_key.json");
 
 export async function verify(
   proof: any,

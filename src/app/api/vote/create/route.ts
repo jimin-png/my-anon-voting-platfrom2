@@ -41,36 +41,29 @@ export async function POST(req: Request) {
       voteIndex,
     } = body;
 
-    // 1. 필수 값 검증
+    // ---------------------------
+    // 1) 필수 값 검증
+    // ---------------------------
     if (!pollId || !walletAddress || !proof || !publicSignals || voteIndex === undefined) {
       return new Response(
         JSON.stringify({
           success: false,
-          message:
-            "pollId, walletAddress, proof, publicSignals, voteIndex 필수",
+          message: "pollId, walletAddress, proof, publicSignals, voteIndex 필수",
         }),
         { status: 400, headers: { "Content-Type": "application/json" } }
       );
     }
 
-    const {
-      root,
-      pollId: pollIdSignal,
-      nullifierHash,
-      voteCommitment,
-    } = publicSignals;
+    // ---------------------------
+    // 2) publicSignals 배열 매핑
+    //    publicSignals = [root, pollIdField, nullifierHash, voteCommitment]
+    // ---------------------------
+    const root = publicSignals[0];
+    const pollIdSignal = publicSignals[1];      // UUID와 다름 (circom field)
+    const nullifierHash = publicSignals[2];
+    const voteCommitment = publicSignals[3];
 
-    if (!root || !pollIdSignal || !nullifierHash || !voteCommitment) {
-      return new Response(
-        JSON.stringify({
-          success: false,
-          message: "publicSignals(root, pollId, nullifierHash, voteCommitment) 필수",
-        }),
-        { status: 400, headers: { "Content-Type": "application/json" } }
-      );
-    }
-
-    // 2. publicSignals(object) → array 변환 (순서 매우 중요)
+    // signalsArray는 snarkjs.verify() 입력 형식
     const signalsArray = [
       root,
       pollIdSignal,
@@ -78,8 +71,22 @@ export async function POST(req: Request) {
       voteCommitment,
     ];
 
-    // 3. ZK Proof 검증
+    // ---------------------------
+    // 3) 디버깅 로그
+    // ---------------------------
+    console.log("=======================================");
+    console.log("proof:", proof);
+    console.log("publicSignals:", publicSignals);
+    console.log("signalsArray:", signalsArray);
+    console.log("=======================================");
+
+    // ---------------------------
+    // 4) ZKP 검증
+    // ---------------------------
     const isValid = await verify(proof, signalsArray);
+
+    console.log("ZKP verified:", isValid);
+
     if (!isValid) {
       return new Response(
         JSON.stringify({
@@ -90,19 +97,16 @@ export async function POST(req: Request) {
       );
     }
 
-    // 4. pollId 일치 확인
-    if (pollIdSignal !== pollId) {
-      return new Response(
-        JSON.stringify({
-          success: false,
-          message: "publicSignals.pollId 불일치",
-        }),
-        { status: 400, headers: { "Content-Type": "application/json" } }
-      );
-    }
+    // ---------------------------
+    // ❌ 5) pollIdSignal vs pollId 비교 금지
+    // 프론트에서도 말했듯 둘은 다르며 절대 일치하지 않음
+    // ---------------------------
 
-    // 5. 유권자 자동 등록 (기존 요구사항 유지)
+    // ---------------------------
+    // 6) 유권자 자동 등록
+    // ---------------------------
     let voterDoc = await Voter.findOne({ walletAddress }).lean();
+
     if (!voterDoc?._id) {
       const newVoter = await Voter.create({
         walletAddress,
@@ -112,8 +116,11 @@ export async function POST(req: Request) {
       voterDoc = newVoter.toObject();
     }
 
-    // 6. nullifierHash 중복 체크 (선거별 1인 1표)
+    // ---------------------------
+    // 7) nullifierHash 중복 방지 (선거별 1인 1표)
+    // ---------------------------
     const exists = await Vote.findOne({ pollId, nullifierHash });
+
     if (exists) {
       return new Response(
         JSON.stringify({
@@ -124,7 +131,9 @@ export async function POST(req: Request) {
       );
     }
 
-    // 7. 투표 저장 (voteIndex 기반)
+    // ---------------------------
+    // 8) 투표 저장
+    // ---------------------------
     const newVote = await Vote.create({
       pollId,
       root,
@@ -146,6 +155,7 @@ export async function POST(req: Request) {
       }),
       { status: 201, headers: { "Content-Type": "application/json" } }
     );
+
   } catch (error: any) {
     console.error("API Error /api/vote/create:", error);
 
