@@ -22,171 +22,59 @@
 
 // src/app/api/vote/create/route.ts
 
-/**
- * 투표 생성 API (verify 완전 비활성화 버전)
- *
- * POST /api/vote/create
- *
- * 기능:
- * - 요청값 검증
- * - 유권자 자동 등록
- * - 재투표 시 업데이트
- * - verify()는 항상 true → Render에서도 정상 동작
- */
+import { NextRequest, NextResponse } from "next/server";
+import dbConnect from "@/lib/dbConnect";
+import Vote from "@/models/Vote";
 
-import dbConnect from '@/lib/dbConnect'
-import Vote from '@/models/Vote'
-import Voter from '@/models/Voter'
-import { verify } from '@/lib/zk/verify'
-
-export async function POST(req: Request) {
+export async function POST(req: NextRequest) {
   try {
-    await dbConnect()
+    await dbConnect();
 
-    console.log("📌 body parsing 시작")
-    const body = await req.json()
-    console.log("📌 body parsing 완료, body:", body)
+    const body = await req.json();
+    const { pollId, walletAddress, voteIndex, nullifierHash } = body;
 
-    const { pollId, walletAddress, proof, publicSignals, voteIndex } = body
+    // ⭐ 서버는 검증하지 않음 — ZKP 검증은 스마트컨트랙트가 처리함.
 
-    // ---------------------------
-    // 1) 필수 값 검증
-    // ---------------------------
-    if (
-      !pollId ||
-      !walletAddress ||
-      !proof ||
-      !publicSignals ||
-      voteIndex === undefined
-    ) {
-      return new Response(
-        JSON.stringify({
-          success: false,
-          message:
-            "pollId, walletAddress, proof, publicSignals, voteIndex 필수",
-        }),
-        { status: 400, headers: { "Content-Type": "application/json" } }
-      )
-    }
+    // ⭐ 같은 pollId 안에서만 중복 체크해야 함
+    const existing = await Vote.findOne({ pollId, nullifierHash });
+    const isUpdate = existing ? true : false;
 
-    // 배열 형태인지 체크
-    if (!Array.isArray(publicSignals)) {
-      return new Response(
-        JSON.stringify({
-          success: false,
-          message: "publicSignals must be an array",
-        }),
-        { status: 400, headers: { "Content-Type": "application/json" } }
-      )
-    }
-
-    // circom 출력 기준: [root, pollId, nullifierHash, voteCommitment]
-    const [root, pollIdSignal, nullifierHash, voteCommitment] = publicSignals
-
-    // pollId 일치 여부 확인
-    if (pollIdSignal.toString() !== pollId.toString()) {
-      return new Response(
-        JSON.stringify({
-          success: false,
-          message: `ZKP pollId mismatch: ZK=${pollIdSignal} / API=${pollId}`,
-        }),
-        { status: 400 }
-      )
-    }
-
-    // ---------------------------
-    // 2) verify() 완전 비활성화
-    // ---------------------------
-    console.log("🚫 ZKP 검증 SKIPPED (테스트 모드)");
-
-    const isValid = true; // ← verify() 호출 안 함
-
-    if (!isValid) {
-      return new Response(
-        JSON.stringify({
-          success: false,
-          message: "유효하지 않은 ZK Proof",
-        }),
-        { status: 400 }
-      )
-    }
-
-    // ---------------------------
-    // 3) 유권자 자동 등록
-    // ---------------------------
-    let voterDoc = await Voter.findOne({ walletAddress }).lean()
-
-    if (!voterDoc?._id) {
-      const newVoter = await Voter.create({
-        walletAddress,
-        name: body?.name || `Voter-${walletAddress.slice(0, 8)}`,
-        studentId: body?.studentId || null,
-      })
-      voterDoc = newVoter.toObject()
-    }
-
-    // ---------------------------
-    // 4) 재투표 로직
-    // ---------------------------
-    const prevVote = await Vote.findOne({ pollId, nullifierHash })
-
-    if (prevVote) {
+    if (isUpdate) {
+      // 재투표 → 기존 투표 업데이트
       await Vote.updateOne(
         { pollId, nullifierHash },
-        {
-          root: root.toString(),
-          voteCommitment: voteCommitment.toString(),
-          voteIndex,
-        }
-      )
+        { voteIndex, updatedAt: new Date() }
+      );
 
-      return new Response(
-        JSON.stringify({
+      return NextResponse.json(
+        {
           success: true,
-          message: "vote updated (재투표 반영)",
           isUpdate: true,
-          pollId,
-          voteIndex,
-        }),
+          message: "Vote updated (re-vote applied)."
+        },
         { status: 200 }
-      )
+      );
     }
 
-    // ---------------------------
-    // 5) 최초 투표 저장
-    // ---------------------------
-    const newVote = await Vote.create({
+    // 최초 투표
+    await Vote.create({
       pollId,
-      root: root.toString(),
-      nullifierHash: nullifierHash.toString(),
-      voteCommitment: voteCommitment.toString(),
+      walletAddress,
       voteIndex,
-      voter: voterDoc._id,
-    })
+      nullifierHash,
+      createdAt: new Date()
+    });
 
-    return new Response(
-      JSON.stringify({
-        success: true,
-        message: "vote accepted (최초투표)",
-        isUpdate: false,
-        data: {
-          voteId: newVote._id,
-          pollId,
-          voteIndex,
-        },
-      }),
-      { status: 201 }
-    )
-  } catch (error: any) {
-    console.error("API Error /api/vote/create:", error)
+    return NextResponse.json(
+      { success: true, isUpdate: false, message: "Vote saved (on-chain verified)." },
+      { status: 200 }
+    );
 
-    return new Response(
-      JSON.stringify({
-        success: false,
-        message: "Internal Server Error",
-        details: String(error?.message || error),
-      }),
+  } catch (e) {
+    console.error(e);
+    return NextResponse.json(
+      { success: false, message: "서버 오류" },
       { status: 500 }
-    )
+    );
   }
 }
