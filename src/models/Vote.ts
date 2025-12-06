@@ -21,11 +21,11 @@ import mongoose, { Schema, models, Model, Types } from "mongoose";
 
 export interface IVote {
   pollId: string;
-  root: string;
-  nullifierHash: string;
-  voteCommitment: string;
-  voteIndex: number;
-  voter?: Types.ObjectId; // optional
+  root?: string;              // optional
+  nullifierHash: string;      // required
+  voteCommitment?: string;    // optional
+  voteIndex: number;          // required
+  voter?: Types.ObjectId;     // optional
   createdAt?: Date;
 }
 
@@ -33,15 +33,15 @@ const VoteSchema = new Schema<IVote>(
   {
     pollId: { type: String, required: true, index: true },
 
-    // ZKP 필드
-    root: { type: String, required: true },
+    // ==== ZKP 출력 필드 (optional 로 변경) ====
+    root: { type: String, required: false },
     nullifierHash: { type: String, required: true },
-    voteCommitment: { type: String, required: true },
+    voteCommitment: { type: String, required: false },
 
-    // 집계용 index (정수)
+    // 집계용 index
     voteIndex: { type: Number, required: true },
 
-    // optional
+    // optional voter reference
     voter: { type: Schema.Types.ObjectId, ref: "Voter" },
   },
   { timestamps: true }
