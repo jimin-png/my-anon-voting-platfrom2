@@ -31,11 +31,11 @@ export async function POST(req: Request) {
   try {
     await dbConnect()
 
-    console.log("📌 body parsing 시작");
-    const body = await req.json();
-    console.log("📌 body parsing 완료, body:", body);
+    console.log('📌 body parsing 시작')
+    const body = await req.json()
+    console.log('📌 body parsing 완료, body:', body)
 
-    const { pollId, walletAddress, proof, publicSignals, voteIndex } = body;
+    const { pollId, walletAddress, proof, publicSignals, voteIndex } = body
 
     // ---------------------------
     // 1) 필수 값 검증
@@ -50,27 +50,53 @@ export async function POST(req: Request) {
       return new Response(
         JSON.stringify({
           success: false,
-          message: 'pollId, walletAddress, proof, publicSignals, voteIndex 필수',
+          message:
+            'pollId, walletAddress, proof, publicSignals, voteIndex 필수',
         }),
         { status: 400, headers: { 'Content-Type': 'application/json' } }
-      );
+      )
     }
 
     // ---------------------------
-    // 2) publicSignals → 배열 체크
+    // 2) publicSignals → 배열/객체 모두 지원
+    //    circom 기준: [root, pollId, nullifierHash, voteCommitment]
     // ---------------------------
-    if (!Array.isArray(publicSignals)) {
+    let root: any
+    let pollIdSignal: any
+    let nullifierHash: any
+    let voteCommitment: any
+
+    if (Array.isArray(publicSignals)) {
+      // 배열 형식: [root, pollId, nullifierHash, voteCommitment]
+      ;[root, pollIdSignal, nullifierHash, voteCommitment] = publicSignals
+    } else if (publicSignals && typeof publicSignals === 'object') {
+      // 객체 형식: { root, pollId, nullifierHash, voteCommitment }
+      root = publicSignals.root
+      pollIdSignal = publicSignals.pollId
+      nullifierHash = publicSignals.nullifierHash
+      voteCommitment = publicSignals.voteCommitment
+    } else {
       return new Response(
         JSON.stringify({
           success: false,
-          message: 'publicSignals must be an array',
+          message: 'publicSignals 형식이 올바르지 않습니다 (array 또는 object)',
         }),
         { status: 400, headers: { 'Content-Type': 'application/json' } }
-      );
+      )
     }
 
-    // circom 출력 기준: [root, pollId, nullifierHash, voteCommitment]
-    const [root, pollIdSignal, nullifierHash, voteCommitment] = publicSignals;
+    if (!root || !pollIdSignal || !nullifierHash || !voteCommitment) {
+      return new Response(
+        JSON.stringify({
+          success: false,
+          message:
+            'publicSignals에 root, pollId, nullifierHash, voteCommitment가 모두 있어야 합니다',
+        }),
+        { status: 400, headers: { 'Content-Type': 'application/json' } }
+      )
+    }
+
+    const signalsArray = [root, pollIdSignal, nullifierHash, voteCommitment]
 
     // pollId 불일치 체크
     if (pollIdSignal.toString() !== pollId.toString()) {
@@ -80,29 +106,29 @@ export async function POST(req: Request) {
           message: `ZKP pollId mismatch: ZK=${pollIdSignal} / API=${pollId}`,
         }),
         { status: 400, headers: { 'Content-Type': 'application/json' } }
-      );
+      )
     }
 
     // ---------------------------
     // 3) ZKP 실제 검증
     // ---------------------------
-    console.log("📌 ZKP 검증 시작:", publicSignals, proof);
+    console.log('📌 ZKP 검증 시작:', signalsArray, proof)
 
-    let isValid = false;
+    let isValid = false
     try {
-      isValid = await verify(proof, publicSignals);
+      isValid = await verify(proof, signalsArray)
     } catch (e) {
-      console.error("❌ verify() 실행 중 에러:", e);
+      console.error('❌ verify() 실행 중 에러:', e)
       return new Response(
         JSON.stringify({
           success: false,
-          message: "ZKP 검증 중 내부 오류 발생",
+          message: 'ZKP 검증 중 내부 오류 발생',
         }),
-        { status: 500, headers: { "Content-Type": "application/json" } }
-      );
+        { status: 500, headers: { 'Content-Type': 'application/json' } }
+      )
     }
 
-    console.log("📌 ZKP 검증 완료:", isValid);
+    console.log('📌 ZKP 검증 완료:', isValid)
 
     if (!isValid) {
       return new Response(
@@ -111,27 +137,27 @@ export async function POST(req: Request) {
           message: '유효하지 않은 ZK Proof',
         }),
         { status: 400, headers: { 'Content-Type': 'application/json' } }
-      );
+      )
     }
 
     // ---------------------------
     // 4) 유권자 자동 등록
     // ---------------------------
-    let voterDoc = await Voter.findOne({ walletAddress }).lean();
+    let voterDoc = await Voter.findOne({ walletAddress }).lean()
 
     if (!voterDoc?._id) {
       const newVoter = await Voter.create({
         walletAddress,
         name: body?.name || `Voter-${walletAddress.slice(0, 8)}`,
         studentId: body?.studentId || null,
-      });
-      voterDoc = newVoter.toObject();
+      })
+      voterDoc = newVoter.toObject()
     }
 
     // ---------------------------
     // 5) 재투표 로직 (pollId + nullifierHash)
     // ---------------------------
-    const prevVote = await Vote.findOne({ pollId, nullifierHash });
+    const prevVote = await Vote.findOne({ pollId, nullifierHash })
 
     if (prevVote) {
       await Vote.updateOne(
@@ -141,7 +167,7 @@ export async function POST(req: Request) {
           voteCommitment: voteCommitment.toString(),
           voteIndex,
         }
-      );
+      )
 
       return new Response(
         JSON.stringify({
@@ -152,7 +178,7 @@ export async function POST(req: Request) {
           voteIndex,
         }),
         { status: 200, headers: { 'Content-Type': 'application/json' } }
-      );
+      )
     }
 
     // ---------------------------
@@ -165,7 +191,7 @@ export async function POST(req: Request) {
       voteCommitment: voteCommitment.toString(),
       voteIndex,
       voter: voterDoc._id,
-    });
+    })
 
     return new Response(
       JSON.stringify({
@@ -179,9 +205,9 @@ export async function POST(req: Request) {
         },
       }),
       { status: 201, headers: { 'Content-Type': 'application/json' } }
-    );
+    )
   } catch (error: any) {
-    console.error('API Error /api/vote/create:', error);
+    console.error('API Error /api/vote/create:', error)
 
     return new Response(
       JSON.stringify({
@@ -193,6 +219,6 @@ export async function POST(req: Request) {
         status: 500,
         headers: { 'Content-Type': 'application/json; charset=utf-8' },
       }
-    );
+    )
   }
 }
