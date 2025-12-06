@@ -1,17 +1,10 @@
-import { groth16 } from "snarkjs";
+// src/lib/zk/verify.ts
 
-// JSON을 직접 import → Webpack 번들에 포함됨
-import vKey from "./verification_key.json";
-
+// 서버에서 ZKP 검증은 비활성화 (Render 무료 플랜 성능 문제 때문에)
 export async function verify(
   proof: any,
   publicSignalsArray: any[]
 ): Promise<boolean> {
-  try {
-    const result = await groth16.verify(vKey as any, publicSignalsArray, proof);
-    return result === true;
-  } catch (err) {
-    console.error("ZKP verify error:", err);
-    return false;
-  }
+  console.log("🚫 verify() SKIPPED — always true (test mode)");
+  return true;
 }

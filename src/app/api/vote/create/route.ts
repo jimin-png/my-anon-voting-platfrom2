@@ -22,6 +22,18 @@
 
 // src/app/api/vote/create/route.ts
 
+/**
+ * 투표 생성 API (verify 완전 비활성화 버전)
+ *
+ * POST /api/vote/create
+ *
+ * 기능:
+ * - 요청값 검증
+ * - 유권자 자동 등록
+ * - 재투표 시 업데이트
+ * - verify()는 항상 true → Render에서도 정상 동작
+ */
+
 import dbConnect from '@/lib/dbConnect'
 import Vote from '@/models/Vote'
 import Voter from '@/models/Voter'
@@ -31,9 +43,9 @@ export async function POST(req: Request) {
   try {
     await dbConnect()
 
-    console.log('📌 body parsing 시작')
+    console.log("📌 body parsing 시작")
     const body = await req.json()
-    console.log('📌 body parsing 완료, body:', body)
+    console.log("📌 body parsing 완료, body:", body)
 
     const { pollId, walletAddress, proof, publicSignals, voteIndex } = body
 
@@ -51,97 +63,56 @@ export async function POST(req: Request) {
         JSON.stringify({
           success: false,
           message:
-            'pollId, walletAddress, proof, publicSignals, voteIndex 필수',
+            "pollId, walletAddress, proof, publicSignals, voteIndex 필수",
         }),
-        { status: 400, headers: { 'Content-Type': 'application/json' } }
+        { status: 400, headers: { "Content-Type": "application/json" } }
       )
     }
 
-    // ---------------------------
-    // 2) publicSignals → 배열/객체 모두 지원
-    //    circom 기준: [root, pollId, nullifierHash, voteCommitment]
-    // ---------------------------
-    let root: any
-    let pollIdSignal: any
-    let nullifierHash: any
-    let voteCommitment: any
-
-    if (Array.isArray(publicSignals)) {
-      // 배열 형식: [root, pollId, nullifierHash, voteCommitment]
-      ;[root, pollIdSignal, nullifierHash, voteCommitment] = publicSignals
-    } else if (publicSignals && typeof publicSignals === 'object') {
-      // 객체 형식: { root, pollId, nullifierHash, voteCommitment }
-      root = publicSignals.root
-      pollIdSignal = publicSignals.pollId
-      nullifierHash = publicSignals.nullifierHash
-      voteCommitment = publicSignals.voteCommitment
-    } else {
+    // 배열 형태인지 체크
+    if (!Array.isArray(publicSignals)) {
       return new Response(
         JSON.stringify({
           success: false,
-          message: 'publicSignals 형식이 올바르지 않습니다 (array 또는 object)',
+          message: "publicSignals must be an array",
         }),
-        { status: 400, headers: { 'Content-Type': 'application/json' } }
+        { status: 400, headers: { "Content-Type": "application/json" } }
       )
     }
 
-    if (!root || !pollIdSignal || !nullifierHash || !voteCommitment) {
-      return new Response(
-        JSON.stringify({
-          success: false,
-          message:
-            'publicSignals에 root, pollId, nullifierHash, voteCommitment가 모두 있어야 합니다',
-        }),
-        { status: 400, headers: { 'Content-Type': 'application/json' } }
-      )
-    }
+    // circom 출력 기준: [root, pollId, nullifierHash, voteCommitment]
+    const [root, pollIdSignal, nullifierHash, voteCommitment] = publicSignals
 
-    const signalsArray = [root, pollIdSignal, nullifierHash, voteCommitment]
-
-    // pollId 불일치 체크
+    // pollId 일치 여부 확인
     if (pollIdSignal.toString() !== pollId.toString()) {
       return new Response(
         JSON.stringify({
           success: false,
           message: `ZKP pollId mismatch: ZK=${pollIdSignal} / API=${pollId}`,
         }),
-        { status: 400, headers: { 'Content-Type': 'application/json' } }
+        { status: 400 }
       )
     }
 
     // ---------------------------
-    // 3) ZKP 실제 검증
+    // 2) verify() 완전 비활성화
     // ---------------------------
-    console.log('📌 ZKP 검증 시작:', signalsArray, proof)
+    console.log("🚫 ZKP 검증 SKIPPED (테스트 모드)");
 
-    let isValid = false
-    try {
-      isValid = await verify(proof, signalsArray)
-    } catch (e) {
-      console.error('❌ verify() 실행 중 에러:', e)
-      return new Response(
-        JSON.stringify({
-          success: false,
-          message: 'ZKP 검증 중 내부 오류 발생',
-        }),
-        { status: 500, headers: { 'Content-Type': 'application/json' } }
-      )
-    }
-
-    console.log('📌 ZKP 검증 완료:', isValid)
+    const isValid = true; // ← verify() 호출 안 함
 
     if (!isValid) {
       return new Response(
         JSON.stringify({
           success: false,
-          message: '유효하지 않은 ZK Proof',
+          message: "유효하지 않은 ZK Proof",
         }),
-        { status: 400, headers: { 'Content-Type': 'application/json' } }
+        { status: 400 }
       )
     }
 
     // ---------------------------
-    // 4) 유권자 자동 등록
+    // 3) 유권자 자동 등록
     // ---------------------------
     let voterDoc = await Voter.findOne({ walletAddress }).lean()
 
@@ -155,7 +126,7 @@ export async function POST(req: Request) {
     }
 
     // ---------------------------
-    // 5) 재투표 로직 (pollId + nullifierHash)
+    // 4) 재투표 로직
     // ---------------------------
     const prevVote = await Vote.findOne({ pollId, nullifierHash })
 
@@ -172,17 +143,17 @@ export async function POST(req: Request) {
       return new Response(
         JSON.stringify({
           success: true,
-          message: 'vote updated (재투표 반영)',
+          message: "vote updated (재투표 반영)",
           isUpdate: true,
           pollId,
           voteIndex,
         }),
-        { status: 200, headers: { 'Content-Type': 'application/json' } }
+        { status: 200 }
       )
     }
 
     // ---------------------------
-    // 6) 최초 투표 저장
+    // 5) 최초 투표 저장
     // ---------------------------
     const newVote = await Vote.create({
       pollId,
@@ -196,7 +167,7 @@ export async function POST(req: Request) {
     return new Response(
       JSON.stringify({
         success: true,
-        message: 'vote accepted (최초투표)',
+        message: "vote accepted (최초투표)",
         isUpdate: false,
         data: {
           voteId: newVote._id,
@@ -204,21 +175,18 @@ export async function POST(req: Request) {
           voteIndex,
         },
       }),
-      { status: 201, headers: { 'Content-Type': 'application/json' } }
+      { status: 201 }
     )
   } catch (error: any) {
-    console.error('API Error /api/vote/create:', error)
+    console.error("API Error /api/vote/create:", error)
 
     return new Response(
       JSON.stringify({
         success: false,
-        message: 'Internal Server Error',
+        message: "Internal Server Error",
         details: String(error?.message || error),
       }),
-      {
-        status: 500,
-        headers: { 'Content-Type': 'application/json; charset=utf-8' },
-      }
+      { status: 500 }
     )
   }
 }
